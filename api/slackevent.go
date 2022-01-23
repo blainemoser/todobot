@@ -3,6 +3,7 @@ package api
 import (
 	"fmt"
 	"net/http"
+	"strings"
 
 	jsonextract "github.com/blainemoser/JsonExtract"
 )
@@ -62,6 +63,14 @@ func (a *Api) getSlackChallenge(extract jsonextract.JSONExtract) (hasString stri
 }
 
 func (r *Response) handleSlackEvent(body []byte) {
-
+	extract := jsonextract.JSONExtract{
+		RawJSON: string(body),
+	}
+	if _, err := extract.Extract("ok"); err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "invalid") {
+			r.HandleError(http.StatusBadRequest, "invalid request body", nil)
+			return
+		}
+	}
 	fmt.Println("slack event", string(body))
 }

@@ -41,8 +41,18 @@ func (r *Response) Respond() {
 	}
 	defer r.closeRequest()
 	r.w.Header().Add("Content-Type", "application/json")
+	if r.message == nil || len(r.message) < 1 {
+		r.EmptyResponse()
+		return
+	}
 	r.w.WriteHeader(r.code)
 	r.w.Write(r.message)
+}
+
+func (r *Response) EmptyResponse() {
+	r.code = http.StatusNoContent
+	r.w.WriteHeader(r.code)
+	r.w.Write([]byte(`{"error": true, "message":"no content"}`))
 }
 
 func (r *Response) writeError(p interface{}) {
