@@ -25,7 +25,7 @@ type TestSuite struct {
 	ResultCode   int
 }
 
-func Initialize() (*TestSuite, error) {
+func Initialize(context string) (*TestSuite, error) {
 	ts := &TestSuite{
 		Database:   "todobot_test_database",
 		ResultCode: 0,
@@ -35,7 +35,7 @@ func Initialize() (*TestSuite, error) {
 		return nil, err
 	}
 	ts.TS = trySql
-	err = ts.bootstrap()
+	err = ts.bootstrap(context)
 	if err != nil {
 		return nil, err
 	}
@@ -63,7 +63,7 @@ func (ts *TestSuite) TearDown() {
 	td(r)
 }
 
-func (ts *TestSuite) bootstrap() error {
+func (ts *TestSuite) bootstrap(context string) error {
 	configs := ts.getConfigs(true)
 	d, err := database.MakeSchemaless(configs)
 	if err != nil {
@@ -73,7 +73,7 @@ func (ts *TestSuite) bootstrap() error {
 	if err != nil {
 		return err
 	}
-	baseDir, err := utils.BaseDir([]string{"testsuite"}, "todobot")
+	baseDir, err := utils.BaseDir([]string{context}, "todobot")
 	if err != nil {
 		return err
 	}
@@ -123,7 +123,7 @@ func (ts *TestSuite) setEnvVars() {
 	os.Setenv("DB_CONNECTION", "mysql")
 }
 
-func (ts *TestSuite) TestLogger() (*logging.Log, error) {
+func TestLogger() (*logging.Log, error) {
 	baseDir, err := utils.BaseDir([]string{"testsuite"}, "todobot")
 	if err != nil {
 		return nil, err
@@ -131,7 +131,7 @@ func (ts *TestSuite) TestLogger() (*logging.Log, error) {
 	return logging.NewLog(fmt.Sprintf("%s/%s", baseDir, "test_log.log"), "TESTING")
 }
 
-func (ts *TestSuite) EvaluateResult(result []byte, expects map[string]interface{}) (err error) {
+func EvaluateResult(result []byte, expects map[string]interface{}) (err error) {
 	extract := jsonextract.JSONExtract{
 		RawJSON: string(result),
 	}
@@ -149,7 +149,7 @@ func (ts *TestSuite) EvaluateResult(result []byte, expects map[string]interface{
 	return errStrings(errs)
 }
 
-func (ts *TestSuite) GetBody(r *http.Response) (data []byte, err error) {
+func GetBody(r *http.Response) (data []byte, err error) {
 	if r == nil || r.Body == nil {
 		return nil, fmt.Errorf("nil response")
 	}

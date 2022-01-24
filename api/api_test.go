@@ -19,37 +19,29 @@ const testSlackChallenge = `{
 }`
 
 var (
-	port  int = 9000
-	a     *Api
-	suite *testsuite.TestSuite
-	l     *logging.Log
+	port int = 9000
+	a    *Api
+	l    *logging.Log
+	code int
 )
 
 func TestMain(m *testing.M) {
 	var err error
-	suite, err = testsuite.Initialize()
-	if err != nil {
-		panic(err)
-	}
-	defer suite.TearDown()
 	err = getAPI()
 	if err != nil {
 		panic(err)
 	}
-	suite.ResultCode = m.Run()
+	code = m.Run()
 }
 
 func getAPI() (err error) {
-	l, err = suite.TestLogger()
+	l, err = testsuite.TestLogger()
 	if err != nil {
 		return err
 	}
-	a = Boot(port, l, suite.TestDatabase)
+	a = Boot(port, l)
 	go func() {
 		err = a.Run()
-		if err != nil {
-			a.Close()
-		}
 	}()
 	return err
 }
@@ -59,11 +51,11 @@ func TestPing(t *testing.T) {
 	w := httptest.NewRecorder()
 	a.ping(w, req)
 	res := w.Result()
-	data, err := suite.GetBody(res)
+	data, err := testsuite.GetBody(res)
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = suite.EvaluateResult(data, map[string]interface{}{
+	err = testsuite.EvaluateResult(data, map[string]interface{}{
 		"error":   false,
 		"message": "pong",
 	})
@@ -77,7 +69,7 @@ func TestSlackEvent(t *testing.T) {
 	w := httptest.NewRecorder()
 	a.slackEvent(w, req)
 	res := w.Result()
-	_, err := suite.GetBody(res)
+	_, err := testsuite.GetBody(res)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,11 +80,11 @@ func TestSlackChallenge(t *testing.T) {
 	w := httptest.NewRecorder()
 	a.slackEvent(w, req)
 	res := w.Result()
-	data, err := suite.GetBody(res)
+	data, err := testsuite.GetBody(res)
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = suite.EvaluateResult(data, map[string]interface{}{
+	err = testsuite.EvaluateResult(data, map[string]interface{}{
 		"challenge": "3eZbrw1aBm2rZgRNFdxV2595E9CY3gmdALWMmHkvFXO7tYXAYM8P",
 	})
 	if err != nil {
@@ -110,7 +102,7 @@ func TestError(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = suite.EvaluateResult(data, map[string]interface{}{
+	err = testsuite.EvaluateResult(data, map[string]interface{}{
 		"error":   true,
 		"message": fmt.Sprintf("method '%s' is not allowed", http.MethodGet),
 	})

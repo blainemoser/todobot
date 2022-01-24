@@ -24,18 +24,19 @@ var (
 		"password",
 		"driver",
 	}
+	db *database.Database
+	a  *api.Api
 )
 
 func main() {
 	hold := make(chan bool, 1)
-	api := bootstrap()
+	bootstrap()
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt)
-	defer api.Close()
-	go done(c, api)
+	go done(c)
 	errc := make(chan error, 1)
 	go func(errc chan error) {
-		errc <- api.Run()
+		errc <- a.Run()
 	}(errc)
 	close(errc)
 	err := <-errc
@@ -45,13 +46,14 @@ func main() {
 	<-hold
 }
 
-func bootstrap() *api.Api {
+func bootstrap() {
+	var err error
 	logger := getLogger()
-	db, err := getDatabase()
+	db, err = getDatabase()
 	if err != nil {
 		log.Fatal(err)
 	}
-	return api.Boot(getPort(), logger, db)
+	a = api.Boot(getPort(), logger)
 }
 
 func getDatabase() (*database.Database, error) {
@@ -115,13 +117,10 @@ func getDBConfigs() (jsonextract.JSONExtract, error) {
 	return dbEnv, nil
 }
 
-func done(signal chan os.Signal, api *api.Api) {
+func done(signal chan os.Signal) {
 	// wait on done signal, kill the process if received
 	result := <-signal
-	api.Write(result.String(), "INFO")
-	if api.Database != nil {
-		api.Close()
-	}
+	a.Write(result.String(), "INFO")
 	os.Exit(1)
 }
 

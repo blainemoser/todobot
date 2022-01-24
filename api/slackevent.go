@@ -66,9 +66,9 @@ func (r *Response) handleSlackEvent(body []byte) {
 	extract := jsonextract.JSONExtract{
 		RawJSON: string(body),
 	}
-	if _, err := extract.Extract("ok"); err != nil {
+	if _, err := extract.Extract("token"); err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "invalid") {
-			r.HandleError(http.StatusBadRequest, "invalid request body", nil)
+			r.HandleError(http.StatusBadRequest, "invalid request body", err)
 			return
 		}
 	}

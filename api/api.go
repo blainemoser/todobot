@@ -6,7 +6,6 @@ import (
 	"net/http"
 
 	logging "github.com/blainemoser/Logging"
-	"github.com/blainemoser/MySqlDB/database"
 )
 
 const errorResponse = `{"error": true, "message": "%s"}`
@@ -14,7 +13,6 @@ const errorResponse = `{"error": true, "message": "%s"}`
 type Api struct {
 	Port int
 	*logging.Log
-	*database.Database
 }
 
 type Response struct {
@@ -65,11 +63,10 @@ func (r *Response) writeError(p interface{}) {
 	r.w.Write(r.message)
 }
 
-func Boot(port int, logger *logging.Log, db *database.Database) *Api {
+func Boot(port int, logger *logging.Log) *Api {
 	api := &Api{
-		Port:     port,
-		Log:      logger,
-		Database: db,
+		Port: port,
+		Log:  logger,
 	}
 	api.controller()
 	return api
