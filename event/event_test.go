@@ -91,13 +91,39 @@ func TestRemoval(t *testing.T) {
 	}
 }
 
-func checkEventRemoved(e *Event) error {
+func TestUnparseable(t *testing.T) {
+	ClearQueue()
+	e, err := Create(testUnparseable(), suite.TestDatabase)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e.Next > 0 {
+		t.Errorf("expected next on uparseable event to be 0, got %d", e.Next)
+	}
+	err = checkEventNotInQueue(e)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(e.Message(), "couldn't understand") {
+		t.Errorf("expected unparseable event to contain '%s' in the message, got '%s'", "couldn't understand", e.Message())
+	}
+}
+
+func checkEventNotInQueue(e *Event) error {
 	for i := Queue.Front(); i != nil; i = i.Next() {
 		if k, ok := i.Value.(*Event); ok {
 			if k.ID == e.ID {
-				return fmt.Errorf("expected event to have been removed, found event #%d, in queue", k.ID)
+				return fmt.Errorf("expected event to have been removed, found event #%d in queue", k.ID)
 			}
 		}
+	}
+	return nil
+}
+
+func checkEventRemoved(e *Event) error {
+	err := checkEventNotInQueue(e)
+	if err != nil {
+		return err
 	}
 	if !strings.Contains(e.Message(), "stop reminding you") {
 		return fmt.Errorf("expected event message to contain '%s', got '%s'", "stop reminding you", e.Message())
@@ -159,6 +185,15 @@ func testReminderThreeRemoval() string {
 		payload(),
 		"[message]",
 		"done tax forms",
+		1,
+	)
+}
+
+func testUnparseable() string {
+	return strings.Replace(
+		payload(),
+		"[message]",
+		"I think you're pretty cool!",
 		1,
 	)
 }

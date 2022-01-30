@@ -288,11 +288,20 @@ func (ei *EventInit) setSchedule(input interface{}) (*Event, error) {
 		return ei.handleExisting(e)
 	case *Event:
 		e.updateSchedule()
-		Queue.PushBack(e)
+		e.pushToQueue()
 		return e, nil
 	default:
 		return nil, fmt.Errorf("type unrecognised")
 	}
+}
+
+func (e *Event) pushToQueue() {
+	if e.Schedule < 1 {
+		// Don't push the event if it's not parseable
+		e.Next = 0
+		return
+	}
+	Queue.PushBack(e)
 }
 
 func (ei *EventInit) handleExisting(input *list.Element) (e *Event, err error) {
