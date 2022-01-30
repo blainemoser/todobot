@@ -24,8 +24,10 @@ var (
 		"password",
 		"driver",
 	}
-	db *database.Database
-	a  *api.Api
+	db     *database.Database
+	logger *logging.Log
+	a      *api.Api
+	env    map[string]string
 )
 
 func main() {
@@ -48,16 +50,38 @@ func main() {
 
 func bootstrap() {
 	var err error
-	logger := getLogger()
+	logger = getLogger()
 	db, err = getDatabase()
 	if err != nil {
 		log.Fatal(err)
 	}
-	a = api.Boot(getPort(), logger)
+	err = parseEnv()
+	if err != nil {
+		log.Fatal(err)
+	}
+	a = api.Boot(getPort(), env["slackURL"], db, logger)
+}
+
+func parseEnv() error {
+	env = make(map[string]string)
+	envConfigs, err := utils.FileConfigs("env.json")
+	if err != nil {
+		log.Fatal(err)
+	}
+	slackURLInterface, err := envConfigs.Extract("slackURL")
+	if err != nil {
+		log.Fatal(err)
+	}
+	slackURL := utils.StringInterface(slackURLInterface)
+	if len(slackURL) < 1 {
+		log.Fatal(fmt.Errorf("no slack url found"))
+	}
+	env["slackURL"] = slackURL
+	return nil
 }
 
 func getDatabase() (*database.Database, error) {
-	configs, err := getDBConfigs()
+	configs, err := utils.FileConfigs("./migrations/configs.json")
 	if err != nil {
 		return nil, err
 	}
@@ -103,18 +127,6 @@ func makeDBConfigs(source map[string]string) (*database.Configs, error) {
 		Database: source["database"],
 		Port:     source["port"],
 	}, nil
-}
-
-func getDBConfigs() (jsonextract.JSONExtract, error) {
-	b, err := utils.GetFileContent("./migrations/configs.json")
-	if err != nil {
-		return jsonextract.JSONExtract{}, err
-	}
-	js := string(b)
-	dbEnv := jsonextract.JSONExtract{
-		RawJSON: js,
-	}
-	return dbEnv, nil
 }
 
 func done(signal chan os.Signal) {

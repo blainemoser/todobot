@@ -1,71 +1,22 @@
 package event
 
 import (
+	"fmt"
+	"strings"
 	"testing"
-	"time"
 
 	jsonextract "github.com/blainemoser/JsonExtract"
+	"github.com/blainemoser/todobot/tests"
 	"github.com/blainemoser/todobot/testsuite"
 	"github.com/blainemoser/todobot/user"
 )
 
-const testEvent = `{
-    "token": "vcSe2kbpQsFkpBJyVdnM4o5M",
-    "team_id": "T02CCAKL1JB",
-    "api_app_id": "A02NLFZUPB7",
-    "event": {
-        "client_msg_id": "202c5873-3f9c-45d9-b64b-4b6c90ba746c",
-        "type": "app_mention",
-        "text": "<@U02P23SK0SV> Her there.",
-        "user": "U02DGLZ7ABA",
-        "ts": "1643038674.000200",
-        "team": "T02CCAKL1JB",
-        "blocks": [
-            {
-                "type": "rich_text",
-                "block_id": "oJh2",
-                "elements": [
-                    {
-                        "type": "rich_text_section",
-                        "elements": [
-                            {
-                                "type": "user",
-                                "user_id": "U02P23SK0SV"
-                            },
-                            {
-                                "type": "text",
-                                "text": " Her there."
-                            }
-                        ]
-                    }
-                ]
-            }
-        ],
-        "channel": "C02NLG80TEH",
-        "event_ts": "1643038674.000200"
-    },
-    "type": "event_callback",
-    "event_id": "Ev02VBF8EFPD",
-    "event_time": 1643038674,
-    "authorizations": [
-        {
-            "enterprise_id": null,
-            "team_id": "T02CCAKL1JB",
-            "user_id": "U02P23SK0SV",
-            "is_bot": true,
-            "is_enterprise_install": false
-        }
-    ],
-    "is_ext_shared_channel": false,
-    "event_context": "4-eyJldCI6ImFwcF9tZW50aW9uIiwidGlkIjoiVDAyQ0NBS0wxSkIiLCJhaWQiOiJBMDJOTEZaVVBCNyIsImNpZCI6IkMwMk5MRzgwVEVIIn0"
-}`
-
 var (
-	suite         *testsuite.TestSuite
-	eventExtract  jsonextract.JSONExtract
-	testUser      map[string]interface{}
-	newTUser      *user.User
-	testEventInit *EventInit
+	suite        *testsuite.TestSuite
+	eventExtract jsonextract.JSONExtract
+	testUser     map[string]interface{}
+	newTUser     *user.User
+	now          int64 = 1643505910
 )
 
 func TestMain(m *testing.M) {
@@ -79,51 +30,84 @@ func TestMain(m *testing.M) {
 	if err != nil {
 		panic(err)
 	}
-	err = getTestEventInit()
-	if err != nil {
-		panic(err)
-	}
 	suite.ResultCode = m.Run()
 }
 
-func TestCreate(t *testing.T) {
-	e, err := Create(suite.TestDatabase, testEventInit)
+func TestCreateNew(t *testing.T) {
+	ClearQueue()
+	e, err := Create(testReminderOne(), suite.TestDatabase)
 	if err != nil {
 		t.Fatal(err)
 	}
-	checkEvent(e, t)
-	uid := e.User.ID()
-	// The purpose of this second test is to make sure the user stays the same; this time it's a lookup and not a create
-	testEventInit.Channel = "C02NLG80AAA"
-	testEventInit.Timestamp = float64(time.Now().UnixNano())
-	etwo, err := Create(suite.TestDatabase, testEventInit)
-	checkEvent(etwo, t)
-	if etwo.User.ID() != uid {
-		t.Fatalf("expected event user id to be %d, got %d", uid, etwo.User.ID())
+	expects := now + (2 * int64(hour))
+	if e.Next != expects {
+		t.Fatalf("expected next to be %d, got %d", expects, e.Next)
 	}
 }
 
-func checkEvent(e *Event, t *testing.T) {
-	if e.ID < 1 {
-		t.Fatalf("expected event id to be greater than 0, got %d", e.ID)
+func TestUpdate(t *testing.T) {
+	ClearQueue()
+	e, err := Create(testReminderTwo(), suite.TestDatabase)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if e.Etext != testEventInit.Etext {
-		t.Fatalf("expected event text to be '%s', got '%s'", testEventInit.Etext, e.Etext)
+	expects := now + int64(hour)
+	if e.Next != expects {
+		t.Fatalf("expected next on event one to be %d, got %d", expects, e.Next)
 	}
-	if e.Etype != testEventInit.Etype {
-		t.Fatalf("expected event type to be '%s', got '%s'", testEventInit.Etype, e.Etype)
+	eUpdate, err := Create(testReminderTwoUpdate(), suite.TestDatabase)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if e.Channel != testEventInit.Channel {
-		t.Fatalf("expected event channel to be '%s', got '%s'", testEventInit.Channel, e.Channel)
+	if e.ID != eUpdate.ID {
+		t.Errorf("expected events to have the same id, got %d and %d", e.ID, eUpdate.ID)
 	}
-	if e.Timestamp != testEventInit.Timestamp {
-		t.Fatalf("expected event channel to be '%f', got '%f'", testEventInit.Timestamp, e.Timestamp)
+	expects = now + int64(3*hour) // the update asks to change it to three hours
+	if e.Next != expects {
+		t.Fatalf("expected next on event update to be %d, got %d", expects, eUpdate.Next)
 	}
+}
+
+func TestRemoval(t *testing.T) {
+	ClearQueue()
+	e, err := Create(testReminderThree(), suite.TestDatabase)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expects := now + int64(2*hour)
+	if e.Next != expects {
+		t.Errorf("expected next on event one to be %d, got %d", expects, e.Next)
+	}
+	eUpdate, err := Create(testReminderThreeRemoval(), suite.TestDatabase)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e.ID != eUpdate.ID {
+		t.Errorf("expected events to have the same id, got %d and %d", e.ID, eUpdate.ID)
+	}
+	err = checkEventRemoved(eUpdate)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func checkEventRemoved(e *Event) error {
+	for i := Queue.Front(); i != nil; i = i.Next() {
+		if k, ok := i.Value.(*Event); ok {
+			if k.ID == e.ID {
+				return fmt.Errorf("expected event to have been removed, found event #%d, in queue", k.ID)
+			}
+		}
+	}
+	if !strings.Contains(e.Message(), "stop reminding you") {
+		return fmt.Errorf("expected event message to contain '%s', got '%s'", "stop reminding you", e.Message())
+	}
+	return nil
 }
 
 func getTestUser() (err error) {
 	eventExtract = jsonextract.JSONExtract{
-		RawJSON: testEvent,
+		RawJSON: tests.TestEventPayload,
 	}
 	uhash, err := eventExtract.Extract("event/user")
 	if err != nil {
@@ -134,7 +118,51 @@ func getTestUser() (err error) {
 	return err
 }
 
-func getTestEventInit() (err error) {
-	testEventInit, err = CreateFromPayload(testEvent)
-	return err
+func testReminderOne() string {
+	return strings.Replace(
+		payload(),
+		"[message]",
+		"Remind me to pick up the laundry every two hours",
+		1,
+	)
+}
+
+func testReminderTwo() string {
+	return strings.Replace(
+		payload(),
+		"[message]",
+		"Remind me to eat every hour",
+		1,
+	)
+}
+
+func testReminderTwoUpdate() string {
+	return strings.Replace(
+		payload(),
+		"[message]",
+		"Rather remind me to eat every three hours",
+		1,
+	)
+}
+
+func testReminderThree() string {
+	return strings.Replace(
+		payload(),
+		"[message]",
+		"Remind me to do tax forms every two hours",
+		1,
+	)
+}
+
+func testReminderThreeRemoval() string {
+	return strings.Replace(
+		payload(),
+		"[message]",
+		"done tax forms",
+		1,
+	)
+}
+
+func payload() string {
+	return strings.Replace(tests.TestEventPayload, "[timestamp]", fmt.Sprintf("%d", now), 1)
 }

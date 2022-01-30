@@ -21,6 +21,8 @@ const timeFormat = "2006-01-02 15:04:05"
 type TestSuite struct {
 	TS           *trysql.TrySql
 	TestDatabase *database.Database
+	TestEnv      map[string]string
+	BaseDir      string
 	Database     string
 	ResultCode   int
 }
@@ -73,11 +75,33 @@ func (ts *TestSuite) bootstrap(context string) error {
 	if err != nil {
 		return err
 	}
-	baseDir, err := utils.BaseDir([]string{context}, "todobot")
+	ts.BaseDir, err = utils.BaseDir([]string{context}, "todobot")
 	if err != nil {
 		return err
 	}
-	return migrate.Make(ts.TestDatabase, fmt.Sprintf("%s/migrations", baseDir)).MigrateUp()
+	err = ts.parseTestEnv()
+	if err != nil {
+		return err
+	}
+	return migrate.Make(ts.TestDatabase, fmt.Sprintf("%s/migrations", ts.BaseDir)).MigrateUp()
+}
+
+func (ts *TestSuite) parseTestEnv() error {
+	ts.TestEnv = make(map[string]string)
+	envConfigs, err := utils.FileConfigs(fmt.Sprintf("%s/test_env.json", ts.BaseDir))
+	if err != nil {
+		return err
+	}
+	slackURLInterface, err := envConfigs.Extract("slackURL")
+	if err != nil {
+		return err
+	}
+	slackURL := utils.StringInterface(slackURLInterface)
+	if len(slackURL) < 1 {
+		return fmt.Errorf("no slack url found")
+	}
+	ts.TestEnv["slackURL"] = slackURL
+	return nil
 }
 
 func (ts *TestSuite) getConfigs(schemaless bool) *database.Configs {

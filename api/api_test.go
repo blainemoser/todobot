@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	logging "github.com/blainemoser/Logging"
+	"github.com/blainemoser/todobot/event"
+	"github.com/blainemoser/todobot/tests"
 	"github.com/blainemoser/todobot/testsuite"
 )
 
@@ -18,20 +20,27 @@ const testSlackChallenge = `{
     "type": "url_verification"
 }`
 
+const testChannelName = "CH0000001"
+
 var (
-	port int = 9000
-	a    *Api
-	l    *logging.Log
-	code int
+	port  int = 9000
+	a     *Api
+	l     *logging.Log
+	suite *testsuite.TestSuite
 )
 
 func TestMain(m *testing.M) {
 	var err error
+	suite, err = testsuite.Initialize("api")
+	if err != nil {
+		panic(err)
+	}
+	defer suite.TearDown()
 	err = getAPI()
 	if err != nil {
 		panic(err)
 	}
-	code = m.Run()
+	suite.ResultCode = m.Run()
 }
 
 func getAPI() (err error) {
@@ -39,7 +48,7 @@ func getAPI() (err error) {
 	if err != nil {
 		return err
 	}
-	a = Boot(port, l)
+	a = Boot(port, suite.TestEnv["slackURL"], suite.TestDatabase, l)
 	go func() {
 		err = a.Run()
 	}()
@@ -64,14 +73,34 @@ func TestPing(t *testing.T) {
 	}
 }
 
+func modifiedTestPayload() *strings.Reader {
+	return strings.NewReader(
+		strings.Replace(tests.TestEventPayload, "C02NLG80TEH", testChannelName, 1),
+	)
+}
+
 func TestSlackEvent(t *testing.T) {
-	req := httptest.NewRequest(http.MethodPost, "/slack-event", nil)
+	req := httptest.NewRequest(http.MethodPost, "/slack-event", modifiedTestPayload())
 	w := httptest.NewRecorder()
 	a.slackEvent(w, req)
 	res := w.Result()
 	_, err := testsuite.GetBody(res)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if event.Queue == nil {
+		t.Fatalf("event queue is empty")
+	}
+	e := event.Queue.Back()
+	if e == nil || e.Value == nil {
+		t.Fatalf("api queue has no events")
+	}
+	event, ok := e.Value.(*event.Event)
+	if !ok {
+		t.Fatalf("event is not of the event type; type assertion failed")
+	}
+	if event.Channel != testChannelName {
+		t.Fatalf("expected event channel to be '%s', got '%s'", testChannelName, event.Channel)
 	}
 }
 

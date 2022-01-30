@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	jsonextract "github.com/blainemoser/JsonExtract"
+	slackresponse "github.com/blainemoser/slackResponse"
+	"github.com/blainemoser/todobot/event"
 )
 
 var (
@@ -72,5 +74,30 @@ func (r *Response) handleSlackEvent(body []byte) {
 			return
 		}
 	}
-	fmt.Println("slack event", string(body))
+	r.newSlackEvent(body)
+}
+
+func (r *Response) newSlackEvent(body []byte) {
+	e, err := event.CreateFromPayload(string(body), r.Database)
+	if err != nil {
+		r.HandleError(http.StatusInternalServerError, "something went wrong", err)
+		return
+	}
+	if e != nil {
+		r.eventResponse(e)
+	}
+}
+
+func (r *Response) eventResponse(e *event.Event) {
+	err := slackresponse.SlackPost(
+		"thanks for that",
+		fmt.Sprintf("<@%s> posted a message:\n'%s'", e.User.Hash(), e.Etext),
+		"INFO",
+		r.SlackURL,
+		r.Log,
+	)
+	if err != nil {
+		r.HandleError(http.StatusInternalServerError, "something went wrong", err)
+		return
+	}
 }
