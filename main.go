@@ -1,18 +1,22 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"os"
 	"os/signal"
 	"strconv"
 	"strings"
+	"time"
 
 	jsonextract "github.com/blainemoser/JsonExtract"
 	logging "github.com/blainemoser/Logging"
 	"github.com/blainemoser/MySqlDB/database"
 	utils "github.com/blainemoser/goutils"
+	slackresponse "github.com/blainemoser/slackResponse"
 	"github.com/blainemoser/todobot/api"
+	"github.com/blainemoser/todobot/event"
 )
 
 var (
@@ -45,7 +49,43 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	go processQueue(a)
 	<-hold
+}
+
+func processQueue(a *api.Api) {
+	tick := time.NewTicker(time.Second * 5)
+	var err error
+	for range tick.C {
+		c := make(chan []map[string]string, 1)
+		event.ProcessQueue(c)
+		result := <-c
+		if len(result) < 1 {
+			continue
+		}
+		err = queueResult(result)
+		if err != nil {
+			a.ErrLog(err, false)
+		}
+	}
+}
+
+func queueResult(result []map[string]string) error {
+	var err error
+	errs := make([]string, 0)
+	for _, v := range result {
+		if v["heading"] == "" || v["message"] == "" {
+			continue
+		}
+		err = slackresponse.SlackPost(v["heading"], v["message"], "INFO", a.SlackURL, logger)
+		if err != nil {
+			errs = append(errs, err.Error())
+		}
+	}
+	if len(errs) > 0 {
+		return errors.New(strings.Join(errs, ", "))
+	}
+	return nil
 }
 
 func bootstrap() {

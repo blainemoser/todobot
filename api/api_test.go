@@ -23,10 +23,11 @@ const testSlackChallenge = `{
 const testChannelName = "CH0000001"
 
 var (
-	port  int = 9000
-	a     *Api
-	l     *logging.Log
-	suite *testsuite.TestSuite
+	port      int = 9000
+	a         *Api
+	l         *logging.Log
+	suite     *testsuite.TestSuite
+	timestamp int64 = 1643505910
 )
 
 func TestMain(m *testing.M) {
@@ -74,9 +75,10 @@ func TestPing(t *testing.T) {
 }
 
 func modifiedTestPayload() *strings.Reader {
-	return strings.NewReader(
-		strings.Replace(tests.TestEventPayload, "C02NLG80TEH", testChannelName, 1),
-	)
+	payload := strings.Replace(tests.TestEventPayload, "C02NLG80TEH", testChannelName, 1)
+	payload = strings.Replace(payload, "[message]", "remind me to fetch the kids", 1)
+	payload = strings.Replace(payload, "[timestamp]", fmt.Sprintf("%d", timestamp), 1)
+	return strings.NewReader(payload)
 }
 
 func TestSlackEvent(t *testing.T) {

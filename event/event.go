@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	jsonextract "github.com/blainemoser/JsonExtract"
 	"github.com/blainemoser/MySqlDB/database"
@@ -27,12 +28,30 @@ type Event struct {
 }
 
 type EventInit struct {
+	*database.Database
 	Channel   string
 	Timestamp float64
 	Schedule  int64
 	Etext     string
 	Etype     string
 	User      string
+}
+
+func ProcessQueue(result chan []map[string]string) {
+	if Queue == nil || Queue.Len() < 1 {
+		result <- []map[string]string{}
+		return
+	}
+	now := time.Now().Unix() + 5
+	set := make([]map[string]string, 0)
+	for i := Queue.Front(); i != nil; i = i.Next() {
+		if k, ok := i.Value.(*Event); ok {
+			if k.Next <= now {
+				set = append(set, k.Processed())
+			}
+		}
+	}
+	result <- set
 }
 
 func ClearQueue() {
@@ -47,7 +66,9 @@ func Create(payload string, db *database.Database) (*Event, error) {
 		RawJSON: payload,
 	}
 	errs := []string{}
-	ei := &EventInit{}
+	ei := &EventInit{
+		Database: db,
+	}
 	for _, wants := range []string{
 		"type", "text", "user", "ts", "channel",
 	} {
@@ -61,7 +82,7 @@ func Create(payload string, db *database.Database) (*Event, error) {
 	if len(errs) > 0 {
 		return nil, fmt.Errorf(strings.Join(errs, ", "))
 	}
-	return ei.schedule(db)
+	return ei.schedule()
 }
 
 func (e *Event) Message() string {
@@ -69,21 +90,23 @@ func (e *Event) Message() string {
 		return e.noneMessage()
 	}
 	if strings.Contains(e.Emessage, "stop reminding you") {
-		return fmt.Sprintf("OK %s, %s\n'%s'", e.userTag(), e.Emessage, e.echo())
+		return fmt.Sprintf("%s\n'%s'", e.Emessage, e.echo())
 	}
-	return fmt.Sprintf("OK %s, I'll remind you %s\n'%s'", e.userTag(), e.Emessage, e.echo())
+	return fmt.Sprintf("I'll remind you %s\n'%s'", e.Emessage, e.echo())
 }
 
-func (e *Event) Processed() string {
+func (e *Event) Processed() map[string]string {
 	e.Timestamp = float64(e.Next)
 	e.setNext()
-	return fmt.Sprintf("Hi %s, a friendly reminder:\n'%s'", e.userTag(), e.echo())
+	return map[string]string{
+		"message": fmt.Sprintf("A friendly reminder:\n'%s'", e.echo()),
+		"heading": fmt.Sprintf("Hi %s", e.UserTag()),
+	}
 }
 
 func (e *Event) noneMessage() string {
 	return fmt.Sprintf(
-		"Sorry, %s\nI couldn't understand what you're asking...\n%s",
-		e.userTag(),
+		"Sorry, I couldn't understand what you're asking...\n%s",
 		exampleMessage(),
 	)
 }
@@ -91,17 +114,17 @@ func (e *Event) noneMessage() string {
 func exampleMessage() string {
 	return fmt.Sprintf(
 		"Try asking me to schedule an event:\n'%s'\nOr, remove an existing one:\n'%s'",
-		"Remind me to call my lawyer every day\nRemind me to log my time every two hours",
-		"Done calling my lawyer\nDone logging my time",
+		"\"Remind me to call my lawyer every day\" or \"Remind me to log my time every two hours\"",
+		"\"Done calling my lawyer\" or \"Done logging my time\"",
 	)
 }
 
-func (e *Event) userTag() string {
+func (e *Event) UserTag() string {
 	return fmt.Sprintf("<@%s>", e.User.Hash())
 }
 
-func (ei *EventInit) schedule(db *database.Database) (*Event, error) {
-	e, err := ei.createOrUpdate(db)
+func (ei *EventInit) schedule() (*Event, error) {
+	e, err := ei.createOrUpdate()
 	if err != nil {
 		return nil, err
 	}
@@ -136,14 +159,14 @@ func (e *Event) update(ei *EventInit) (*Event, error) {
 	return e, err
 }
 
-func (ei *EventInit) createOrUpdate(db *database.Database) (e interface{}, err error) {
+func (ei *EventInit) createOrUpdate() (e interface{}, err error) {
 	if Queue.Len() < 1 {
-		return ei.create(db)
+		return ei.create()
 	}
 	if e = ei.exists(); e != nil {
 		return e, nil
 	}
-	return ei.create(db)
+	return ei.create()
 }
 
 func (ei *EventInit) exists() interface{} {
@@ -171,6 +194,9 @@ func excludeWord(word string) bool {
 	return numbers[word] > 0 ||
 		digits[word] > 0 ||
 		word == "every" ||
+		word == "me" ||
+		word == "to" ||
+		word == "i" ||
 		strings.Contains(word, "hour") ||
 		strings.Contains(word, "day")
 }
@@ -222,16 +248,16 @@ func getMatchQuotient(eiText, eText []string) float64 {
 	return findMQ(eText, eiText)
 }
 
-func (ei *EventInit) create(db *database.Database) (*Event, error) {
+func (ei *EventInit) create() (*Event, error) {
 	e := &Event{
-		Database:  db,
+		Database:  ei.Database,
 		Channel:   ei.Channel,
 		Timestamp: ei.Timestamp,
 		Schedule:  ei.Schedule,
 		Etext:     ei.Etext,
 		Etype:     ei.Etype,
 	}
-	user, err := ei.lookupUser(db)
+	user, err := ei.lookupUser()
 	if err != nil {
 		return nil, err
 	}
@@ -239,15 +265,15 @@ func (ei *EventInit) create(db *database.Database) (*Event, error) {
 	return e.insert()
 }
 
-func (i *EventInit) lookupUser(db *database.Database) (*user.User, error) {
-	result, err := db.QueryRaw(findUser, []interface{}{i.User})
+func (i *EventInit) lookupUser() (*user.User, error) {
+	result, err := i.QueryRaw(findUser, []interface{}{i.User})
 	if err != nil {
 		return nil, err
 	}
 	if len(result) < 1 {
-		return user.Create(db, i.User)
+		return user.Create(i.Database, i.User)
 	}
-	return user.CreateFromRecord(result[0], db)
+	return user.CreateFromRecord(result[0], i.Database)
 }
 
 func (ei *EventInit) addToEventInit(wants string, result interface{}) {
@@ -304,6 +330,13 @@ func (e *Event) pushToQueue() {
 	Queue.PushBack(e)
 }
 
+func (e *Event) save() error {
+	_, err := e.Exec(updateEvent, []interface{}{
+		e.Channel, e.Timestamp, e.Schedule, e.Etext, e.Etype, e.ID,
+	})
+	return err
+}
+
 func (ei *EventInit) handleExisting(input *list.Element) (e *Event, err error) {
 	var ok bool
 	if e, ok = input.Value.(*Event); ok {
@@ -312,14 +345,20 @@ func (ei *EventInit) handleExisting(input *list.Element) (e *Event, err error) {
 			return nil, err
 		}
 		if e.isScheduleRemoval() == true {
-			e.Emessage = "I'll stop reminding you"
-			Queue.Remove(input)
-			return e, nil
+			return e.remove(input)
 		}
 		e.updateSchedule()
 		return e, nil
 	}
 	return nil, fmt.Errorf("could not find existing event in list")
+}
+
+func (e *Event) remove(input *list.Element) (*Event, error) {
+	e.Emessage = "I'll stop reminding you"
+	e.Schedule = 0
+	e.Next = 0
+	Queue.Remove(input)
+	return e, e.save()
 }
 
 func (e *Event) isScheduleAdd() bool {
@@ -356,7 +395,7 @@ func (e *Event) updateSchedule() (err error) {
 		e.Emessage = "every day"
 	}
 	e.setNext()
-	return err
+	return e.save()
 }
 
 func (e *Event) setNext() {

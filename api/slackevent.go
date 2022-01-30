@@ -78,7 +78,7 @@ func (r *Response) handleSlackEvent(body []byte) {
 }
 
 func (r *Response) newSlackEvent(body []byte) {
-	e, err := event.CreateFromPayload(string(body), r.Database)
+	e, err := event.Create(string(body), r.Database)
 	if err != nil {
 		r.HandleError(http.StatusInternalServerError, "something went wrong", err)
 		return
@@ -90,8 +90,8 @@ func (r *Response) newSlackEvent(body []byte) {
 
 func (r *Response) eventResponse(e *event.Event) {
 	err := slackresponse.SlackPost(
-		"thanks for that",
-		fmt.Sprintf("<@%s> posted a message:\n'%s'", e.User.Hash(), e.Etext),
+		fmt.Sprintf("Hi %s", e.UserTag()),
+		e.Message(),
 		"INFO",
 		r.SlackURL,
 		r.Log,

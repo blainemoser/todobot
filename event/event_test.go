@@ -1,6 +1,7 @@
 package event
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -107,6 +108,48 @@ func TestUnparseable(t *testing.T) {
 	if !strings.Contains(e.Message(), "couldn't understand") {
 		t.Errorf("expected unparseable event to contain '%s' in the message, got '%s'", "couldn't understand", e.Message())
 	}
+}
+
+func TestProcessQueue(t *testing.T) {
+	ClearQueue()
+	e, err := Create(testReminderOne(), suite.TestDatabase)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = Create(testReminderThree(), suite.TestDatabase)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := make(chan []map[string]string, 1)
+	go ProcessQueue(c)
+	result := <-c
+	err = checkQueueProcessResult(result, e)
+	if err != nil {
+		t.Error(err)
+	}
+}
+
+func checkQueueProcessResult(result []map[string]string, e *Event) error {
+	if len(result) != 2 {
+		return fmt.Errorf("expected there to be two events processed, got %d", len(result))
+	}
+	expectsHeading := fmt.Sprintf("Hi %s", e.UserTag())
+	errs := make([]string, 0)
+	msgOne := "Remind me to pick up the laundry every two hours"
+	msgTwo := "Remind me to do tax forms every two hours"
+	for _, v := range result {
+		if v["heading"] != expectsHeading {
+			errs = append(errs, fmt.Sprintf("expected heading to be '%s', got '%s'", expectsHeading, v["heading"]))
+		}
+		if !strings.Contains(v["message"], fmt.Sprintf("'%s'", msgOne)) &&
+			!strings.Contains(v["message"], fmt.Sprintf("'%s'", msgTwo)) {
+			errs = append(errs, fmt.Sprintf("expected message to be one of %s or %s, got '%s'", msgOne, msgTwo, v["message"]))
+		}
+	}
+	if len(errs) > 0 {
+		return errors.New(strings.Join(errs, ", "))
+	}
+	return nil
 }
 
 func checkEventNotInQueue(e *Event) error {
