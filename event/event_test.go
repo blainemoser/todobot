@@ -17,10 +17,10 @@ var (
 	eventExtract jsonextract.JSONExtract
 	testUser     map[string]interface{}
 	newTUser     *user.User
-	now          int64 = 1643505910
 )
 
 func TestMain(m *testing.M) {
+	testingMode = true
 	var err error
 	suite, err = testsuite.Initialize("event")
 	if err != nil {
@@ -40,7 +40,7 @@ func TestCreateNew(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	expects := now + (2 * int64(hour))
+	expects := testingNow + (2 * int64(hour))
 	if e.Next != expects {
 		t.Fatalf("expected next to be %d, got %d", expects, e.Next)
 	}
@@ -52,7 +52,7 @@ func TestUpdate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	expects := now + int64(hour)
+	expects := testingNow + int64(hour)
 	if e.Next != expects {
 		t.Fatalf("expected next on event one to be %d, got %d", expects, e.Next)
 	}
@@ -63,7 +63,7 @@ func TestUpdate(t *testing.T) {
 	if e.ID != eUpdate.ID {
 		t.Errorf("expected events to have the same id, got %d and %d", e.ID, eUpdate.ID)
 	}
-	expects = now + int64(3*hour) // the update asks to change it to three hours
+	expects = testingNow + int64(3*hour) // the update asks to change it to three hours
 	if e.Next != expects {
 		t.Fatalf("expected next on event update to be %d, got %d", expects, eUpdate.Next)
 	}
@@ -75,7 +75,7 @@ func TestRemoval(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	expects := now + int64(2*hour)
+	expects := testingNow + int64(2*hour)
 	if e.Next != expects {
 		t.Errorf("expected next on event one to be %d, got %d", expects, e.Next)
 	}
@@ -126,6 +126,64 @@ func TestProcessQueue(t *testing.T) {
 	err = checkQueueProcessResult(result, e)
 	if err != nil {
 		t.Error(err)
+	}
+}
+
+func TestList(t *testing.T) {
+	ClearQueue()
+	_, err := Create(testReminderOne(), suite.TestDatabase)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = Create(testReminderThree(), suite.TestDatabase)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e, err := Create(testList(), suite.TestDatabase)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(strings.ToLower(e.Emessage), "your todo list") {
+		t.Fatalf("expected list event message to contain a todo list, got %s", e.Emessage)
+	}
+}
+
+// Be sure to run this LAST!
+func TestBootstrapQueue(t *testing.T) {
+	ClearQueue()
+	_, err := suite.TestDatabase.Exec("delete from users", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = suite.TestDatabase.Exec("delete from events", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = Create(testReminderOne(), suite.TestDatabase)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = Create(testReminderThree(), suite.TestDatabase)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ClearQueue()
+	err = BootQueue(suite.TestDatabase)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if Queue.Len() < 2 {
+		t.Errorf("expected queue length to be at least 2, but it is %d", Queue.Len())
+	}
+	c := make(chan []map[string]string, 1)
+	go ProcessQueue(c)
+	result := <-c
+	expectsOne := "Remind me to pick up the laundry every two hours"
+	expectsTwo := "Remind me to do tax forms every two hours"
+	for _, m := range result {
+		if !strings.Contains(m["message"], expectsOne) && !strings.Contains(m["message"], expectsTwo) {
+			t.Errorf("expected event message to be either %s or %s, got %s", expectsOne, expectsTwo, m["message"])
+		}
 	}
 }
 
@@ -241,6 +299,15 @@ func testUnparseable() string {
 	)
 }
 
+func testList() string {
+	return strings.Replace(
+		payload(),
+		"[message]",
+		"list",
+		1,
+	)
+}
+
 func payload() string {
-	return strings.Replace(tests.TestEventPayload, "[timestamp]", fmt.Sprintf("%d", now), 1)
+	return strings.Replace(tests.TestEventPayload, "[timestamp]", fmt.Sprintf("%d", testingNow), 1)
 }

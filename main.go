@@ -100,6 +100,10 @@ func bootstrap() {
 		log.Fatal(err)
 	}
 	a = api.Boot(getPort(), env["slackURL"], db, logger)
+	err = event.BootQueue(db)
+	if err != nil {
+		log.Fatal(err)
+	}
 }
 
 func parseEnv() error {

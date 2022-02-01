@@ -61,6 +61,48 @@ func ClearQueue() {
 	}
 }
 
+func BootQueue(db *database.Database) error {
+	records, err := db.QueryRaw(bootQueueQuery, nil)
+	if err != nil {
+		return err
+	}
+	var e *Event
+	users, err = user.UsersList(db)
+	if err != nil {
+		return err
+	}
+	for _, rec := range records {
+		e = makeEventFromDBRecord(rec, db)
+		if e != nil {
+			e.pushToQueue()
+		}
+	}
+	return nil
+}
+
+func makeEventFromDBRecord(rec map[string]interface{}, db *database.Database) (e *Event) {
+	userID := utils.Int64Interface(rec["user_id"])
+	u := users[userID]
+	if u == nil {
+		return nil
+	}
+	e = &Event{
+		Database:  db,
+		User:      u,
+		ID:        utils.Int64Interface(rec["id"]),
+		Channel:   utils.StringInterface(rec["channel"]),
+		Timestamp: utils.Float64Interface(rec["ts"]),
+		Schedule:  utils.Int64Interface(rec["schedule"]),
+		Etext:     utils.StringInterface(rec["etext"]),
+		Etype:     utils.StringInterface(rec["etype"]),
+	}
+	err := e.updateSchedule()
+	if err != nil {
+		return nil
+	}
+	return e
+}
+
 func Create(payload string, db *database.Database) (*Event, error) {
 	eventExtract := jsonextract.JSONExtract{
 		RawJSON: payload,
@@ -92,6 +134,9 @@ func (e *Event) Message() string {
 	if strings.Contains(e.Emessage, "stop reminding you") {
 		return fmt.Sprintf("%s\n'%s'", e.Emessage, e.echo())
 	}
+	if strings.Contains(strings.ToLower(e.Emessage), "your todo list") {
+		return fmt.Sprintf("%s\n", e.Emessage)
+	}
 	return fmt.Sprintf("I'll remind you %s\n'%s'", e.Emessage, e.echo())
 }
 
@@ -113,7 +158,7 @@ func (e *Event) noneMessage() string {
 
 func exampleMessage() string {
 	return fmt.Sprintf(
-		"Try asking me to schedule an event:\n'%s'\nOr, remove an existing one:\n'%s'",
+		"Try asking me to schedule an event:\n'%s'\nOr, remove an existing one:\n'%s'\nType 'list' for your todo list",
 		"\"Remind me to call my lawyer every day\" or \"Remind me to log my time every two hours\"",
 		"\"Done calling my lawyer\" or \"Done logging my time\"",
 	)
@@ -123,12 +168,58 @@ func (e *Event) UserTag() string {
 	return fmt.Sprintf("<@%s>", e.User.Hash())
 }
 
-func (ei *EventInit) schedule() (*Event, error) {
+func (ei *EventInit) schedule() (ev *Event, err error) {
+	ev, err = ei.list()
+	if err != nil {
+		return nil, err
+	}
+	if ev != nil {
+		return ev, nil
+	}
 	e, err := ei.createOrUpdate()
 	if err != nil {
 		return nil, err
 	}
 	return ei.setSchedule(e)
+}
+
+func (ei *EventInit) list() (*Event, error) {
+	if strings.ToLower(ei.echo()) != "list" {
+		return nil, nil
+	}
+	ei.Schedule = 0
+	e, err := ei.create()
+	if err != nil {
+		return nil, err
+	}
+	return e.eventList()
+}
+
+func (e *Event) eventList() (*Event, error) {
+	eventList := getEventList(e.User.Hash())
+	if len(eventList) < 1 {
+		e.Emessage = "Your todo list is empty!"
+	}
+	message := make([]string, 0)
+	for _, v := range eventList {
+		if v.Schedule > 0 {
+			message = append(message, v.Etext)
+		}
+	}
+	e.Emessage = fmt.Sprintf("Your todo list:\n%s", strings.Join(message, "\n"))
+	return e, nil
+}
+
+func getEventList(userHash string) []*Event {
+	result := make([]*Event, 0)
+	for i := Queue.Front(); i != nil; i = i.Next() {
+		if k, ok := i.Value.(*Event); ok {
+			if k.User.Hash() == userHash {
+				result = append(result, k)
+			}
+		}
+	}
+	return result
 }
 
 func (e *Event) insert() (*Event, error) {
@@ -257,11 +348,14 @@ func (ei *EventInit) create() (*Event, error) {
 		Etext:     ei.Etext,
 		Etype:     ei.Etype,
 	}
-	user, err := ei.lookupUser()
+	u, err := ei.lookupUser()
 	if err != nil {
 		return nil, err
 	}
-	e.User = user
+	if users[u.ID()] == nil {
+		users[u.ID()] = u
+	}
+	e.User = u
 	return e.insert()
 }
 
@@ -398,7 +492,26 @@ func (e *Event) updateSchedule() (err error) {
 	return e.save()
 }
 
+func now() int64 {
+	if testingMode {
+		return testingNow
+	}
+	return time.Now().Unix()
+}
+
 func (e *Event) setNext() {
+	if e.Schedule < 1 {
+		return
+	}
+	next := int64(e.Timestamp + float64(e.Schedule))
+	for {
+		if next <= now() {
+			e.Timestamp = float64(next)
+			next = int64(e.Timestamp + float64(e.Schedule))
+			continue
+		}
+		break
+	}
 	e.Next = int64(e.Timestamp + float64(e.Schedule))
 }
 

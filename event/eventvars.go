@@ -3,6 +3,8 @@ package event
 import (
 	"container/list"
 	"regexp"
+
+	"github.com/blainemoser/todobot/user"
 )
 
 const createEvent = `insert into events (channel, ts, schedule, etext, etype, user_id) values (?,?,?,?,?,?)`
@@ -11,12 +13,16 @@ const updateEvent = `update events set channel = ?, ts = ?, schedule = ?, etext 
 
 const findUser = `select * from users where uhash = ?`
 
+const bootQueueQuery = `select e.*, u.uhash from events e join users u on u.id = e.user_id where e.schedule > 0`
+
 const day int = 86400
 
 const hour int = 3600
 
 var (
-	reminders map[string]bool = map[string]bool{
+	testingMode                 = false
+	testingNow  int64           = 1643505910
+	reminders   map[string]bool = map[string]bool{
 		"reminder": true,
 		"remind":   true,
 		"schedule": true,
@@ -93,8 +99,9 @@ var (
 		"2":  2,
 		"1":  1,
 	}
-	NewLines              = regexp.MustCompile(`\n+`)
-	MultiSpace            = regexp.MustCompile(`[ ]{2,}`)
-	Queue      *list.List = list.New()
-	removeTag             = regexp.MustCompile(`<@(.*?)>`)
+	users      map[int64]*user.User = make(map[int64]*user.User)
+	NewLines                        = regexp.MustCompile(`\n+`)
+	MultiSpace                      = regexp.MustCompile(`[ ]{2,}`)
+	Queue      *list.List           = list.New()
+	removeTag                       = regexp.MustCompile(`<@(.*?)>`)
 )

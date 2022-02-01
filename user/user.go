@@ -11,10 +11,32 @@ const newUser = `insert into users (uhash) values(?)`
 
 const findUser = `select * from users where id = ?`
 
+const getAll = `select * from users`
+
 type User struct {
 	*database.Database
 	uhash string
 	id    int64
+}
+
+func UsersList(db *database.Database) (map[int64]*User, error) {
+	result := make(map[int64]*User)
+	records, err := db.QueryRaw(getAll, nil)
+	if err != nil {
+		return map[int64]*User{}, err
+	}
+	var u *User
+	var id int64
+	for _, urec := range records {
+		id = utils.Int64Interface(urec["id"])
+		u = &User{
+			Database: db,
+			uhash:    utils.StringInterface(urec["uhash"]),
+			id:       id,
+		}
+		result[id] = u
+	}
+	return result, nil
 }
 
 func Create(db *database.Database, uhash string) (*User, error) {
