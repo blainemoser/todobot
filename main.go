@@ -104,6 +104,10 @@ func bootstrap() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	err = event.CheckEventUsers(db, env["slackToken"])
+	if err != nil {
+		log.Fatal(err)
+	}
 }
 
 func parseEnv() error {
