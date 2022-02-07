@@ -132,25 +132,35 @@ func Create(payload string, db *database.Database, token string) (*Event, error)
 	return ei.schedule()
 }
 
-func (e *Event) Message() string {
+func (e *Event) MessageBody() string {
 	if len(e.Emessage) < 1 {
 		return e.noneMessage()
 	}
-	if strings.Contains(e.Emessage, "stop reminding you") {
-		return fmt.Sprintf("%s\n'%s'", e.Emessage, e.echo())
+	if strings.Contains(strings.ToLower(e.Emessage), "your todo list") {
+		return ""
+	}
+	return fmt.Sprintf("\n'%s'", e.echo())
+}
+
+func (e *Event) Message() string {
+	if len(e.Emessage) < 1 {
+		return "Sorry, I couldn't understand what you're asking..."
+	}
+	if strings.Contains(strings.ToLower(e.Emessage), "stop reminding you") {
+		return e.Emessage
 	}
 	if strings.Contains(strings.ToLower(e.Emessage), "your todo list") {
-		return fmt.Sprintf("%s\n", e.Emessage)
+		return e.Emessage
 	}
-	return fmt.Sprintf("I'll remind you %s\n'%s'", e.Emessage, e.echo())
+	return fmt.Sprintf("I'll remind you %s", e.Emessage)
 }
 
 func (e *Event) Processed() map[string]string {
 	e.Timestamp = float64(e.Next)
 	e.setNext()
 	return map[string]string{
-		"message": fmt.Sprintf("A friendly reminder:\n'%s'", e.echo()),
-		"heading": fmt.Sprintf("Hi %s", e.UserTag()),
+		"message": fmt.Sprintf("\n'%s'", e.echo()),
+		"heading": fmt.Sprintf("Hi %s, %s", e.UserTag(), "here's a friendly reminder"),
 	}
 }
 
@@ -191,16 +201,17 @@ func updateUser(db *database.Database, token string, u *user.User, errs *[]strin
 
 func (e *Event) noneMessage() string {
 	return fmt.Sprintf(
-		"Sorry, I couldn't understand what you're asking...\n%s",
+		"\n%s",
 		exampleMessage(),
 	)
 }
 
 func exampleMessage() string {
 	return fmt.Sprintf(
-		"Try asking me to schedule an event:\n'%s'\nOr, remove an existing one:\n'%s'\nType 'list' for your todo list",
+		"Try asking me to schedule an event:\n'%s'\nOr, remove an existing one:\n'%s'\nType 'list' for your todo list\nYou can set daily reminders, for instance:\n%s",
 		"\"Remind me to call my lawyer every day\" or \"Remind me to log my time every two hours\"",
 		"\"Done calling my lawyer\" or \"Done logging my time\"",
+		"\"Remind me to pack my lunch every day at 8 am\"",
 	)
 }
 
@@ -564,6 +575,7 @@ func (e *Event) setNext() {
 		return
 	}
 	if e.nextSet {
+		e.nextSet = false
 		return
 	}
 	next := int64(e.Timestamp + float64(e.Schedule))
@@ -641,19 +653,19 @@ func (e *Event) setSpecificTime(t string) {
 	e.setNext()
 	nextT := time.Unix(int64(e.Timestamp), 0)
 	nextTAdj, err := time.Parse(tFormat, fmt.Sprintf("%s %s", nextT.Format("2006-01-02"), t))
-	nextTAdj = nextTAdj.Add(time.Second * time.Duration(-1*e.User.TZOffset()))
+	Adj := nextTAdj.Add(time.Second * time.Duration(-1*e.User.TZOffset()))
 	if err != nil {
 		fmt.Println("error parsing time", err.Error())
 		return
 	}
-	e.Timestamp = float64(nextTAdj.Unix())
+	e.Timestamp = float64(Adj.Unix())
 	if nextTAdj.Unix() < nextT.Unix() {
 		e.Next = int64(e.Timestamp) + int64(day)
 	} else {
 		e.Next = int64(e.Timestamp)
 	}
 	e.nextSet = true
-	e.Emessage = fmt.Sprintf("%s at %s", e.Emessage, nextTAdj.Format("3:05 pm"))
+	e.Emessage = fmt.Sprintf("%s at %s", e.Emessage, nextTAdj.Format("3:04 pm"))
 	e.save()
 }
 

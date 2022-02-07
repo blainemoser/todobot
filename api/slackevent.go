@@ -90,8 +90,8 @@ func (r *Response) newSlackEvent(body []byte) {
 
 func (r *Response) eventResponse(e *event.Event) {
 	err := slackresponse.SlackPost(
-		fmt.Sprintf("Hi %s", e.UserTag()),
-		e.Message(),
+		fmt.Sprintf("Hi %s, %s", e.UserTag(), e.Message()),
+		e.MessageBody(),
 		"INFO",
 		r.SlackURL,
 		r.Log,

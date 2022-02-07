@@ -284,8 +284,8 @@ func checkQueueProcessResult(result []map[string]string, e *Event) error {
 	msgOne := "Remind me to pick up the laundry every two hours"
 	msgTwo := "Remind me to do tax forms every two hours"
 	for _, v := range result {
-		if v["heading"] != expectsHeading {
-			errs = append(errs, fmt.Sprintf("expected heading to be '%s', got '%s'", expectsHeading, v["heading"]))
+		if !strings.Contains(v["heading"], expectsHeading) {
+			errs = append(errs, fmt.Sprintf("expected heading to contain '%s', got '%s'", expectsHeading, v["heading"]))
 		}
 		if !strings.Contains(v["message"], fmt.Sprintf("'%s'", msgOne)) &&
 			!strings.Contains(v["message"], fmt.Sprintf("'%s'", msgTwo)) {
