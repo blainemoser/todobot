@@ -46,7 +46,10 @@ func getTestUser() (err error) {
 }
 
 func TestCreate(t *testing.T) {
-	makeUser()
+	err := makeUser()
+	if err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestFind(t *testing.T) {
@@ -113,11 +116,31 @@ func makeUser() error {
 	if newTUser != nil {
 		return nil
 	}
-	hash := utils.StringInterface(testUser["uhash"])
-	if len(hash) < 1 {
-		return fmt.Errorf("expected user hash to be set, got '%v'", testUser["uhash"])
+	ui, err := getUserInit()
+	if err != nil {
+		return err
 	}
-	user, err := Create(suite.TestDatabase, hash)
+	user, err := Create(ui)
+	if err = checkUserError(user, err); err != nil {
+		return err
+	}
+	newTUser = user
+	return nil
+}
+
+func TestUpdate(t *testing.T) {
+	err := makeUser()
+	if err != nil {
+		t.Fatal(err)
+	}
+	newTUser, err = newTUser.SetTZ("America/Los_Angeles").SetTZLabel("America Los Angeles").SetTZOffset(-28800).Update()
+	if err != nil {
+		t.Fatal(err)
+	}
+	fmt.Println(newTUser)
+}
+
+func checkUserError(user *User, err error) error {
 	if err != nil {
 		return err
 	}
@@ -127,6 +150,16 @@ func makeUser() error {
 	if user.id < 1 {
 		return fmt.Errorf("user has no id set")
 	}
-	newTUser = user
+	if user.tzOffset < 1 {
+		return fmt.Errorf("user has no timezone-offset set")
+	}
 	return nil
+}
+
+func getUserInit() (*UserInit, error) {
+	hash := utils.StringInterface(testUser["uhash"])
+	if len(hash) < 1 {
+		return nil, fmt.Errorf("expected user hash to be set, got '%v'", testUser["uhash"])
+	}
+	return NewInit(suite.TestDatabase, fmt.Sprintf(tests.TestUserPayload, hash), hash)
 }

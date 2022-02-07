@@ -92,7 +92,32 @@ func (ts *TestSuite) parseTestEnv() error {
 	if err != nil {
 		return err
 	}
-	slackURLInterface, err := envConfigs.Extract("slackURL")
+	err = ts.getSlackURL(envConfigs)
+	if err != nil {
+		return err
+	}
+	err = ts.getTestUser(envConfigs)
+	if err != nil {
+		return err
+	}
+	return ts.getSlackToken(envConfigs)
+}
+
+func (ts *TestSuite) getTestUser(configs jsonextract.JSONExtract) error {
+	testUserInterface, err := configs.Extract("testUser")
+	if err != nil {
+		return err
+	}
+	u := utils.StringInterface(testUserInterface)
+	if len(u) < 1 {
+		return fmt.Errorf("no slack url found")
+	}
+	ts.TestEnv["testUser"] = u
+	return nil
+}
+
+func (ts *TestSuite) getSlackURL(configs jsonextract.JSONExtract) error {
+	slackURLInterface, err := configs.Extract("slackURL")
 	if err != nil {
 		return err
 	}
@@ -101,6 +126,19 @@ func (ts *TestSuite) parseTestEnv() error {
 		return fmt.Errorf("no slack url found")
 	}
 	ts.TestEnv["slackURL"] = slackURL
+	return nil
+}
+
+func (ts *TestSuite) getSlackToken(configs jsonextract.JSONExtract) error {
+	slackTokenInterface, err := configs.Extract("slackToken")
+	if err != nil {
+		return err
+	}
+	slackToken := utils.StringInterface(slackTokenInterface)
+	if len(slackToken) < 1 {
+		return fmt.Errorf("no slack url found")
+	}
+	ts.TestEnv["slackToken"] = slackToken
 	return nil
 }
 

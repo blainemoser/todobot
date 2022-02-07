@@ -78,7 +78,7 @@ func (r *Response) handleSlackEvent(body []byte) {
 }
 
 func (r *Response) newSlackEvent(body []byte) {
-	e, err := event.Create(string(body), r.Database)
+	e, err := event.Create(string(body), r.Database, r.slackToken)
 	if err != nil {
 		r.HandleError(http.StatusInternalServerError, "something went wrong", err)
 		return

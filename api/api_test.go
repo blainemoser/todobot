@@ -49,7 +49,7 @@ func getAPI() (err error) {
 	if err != nil {
 		return err
 	}
-	a = Boot(port, suite.TestEnv["slackURL"], suite.TestDatabase, l)
+	a = Boot(port, suite.TestEnv["slackURL"], suite.TestEnv["slackToken"], suite.TestDatabase, l)
 	go func() {
 		err = a.Run()
 	}()

@@ -99,7 +99,7 @@ func bootstrap() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	a = api.Boot(getPort(), env["slackURL"], db, logger)
+	a = api.Boot(getPort(), env["slackURL"], env["slackToken"], db, logger)
 	err = event.BootQueue(db)
 	if err != nil {
 		log.Fatal(err)
@@ -110,17 +110,38 @@ func parseEnv() error {
 	env = make(map[string]string)
 	envConfigs, err := utils.FileConfigs("env.json")
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
+	err = slackURL(envConfigs)
+	if err != nil {
+		return err
+	}
+	return slackToken(envConfigs)
+}
+
+func slackURL(envConfigs jsonextract.JSONExtract) error {
 	slackURLInterface, err := envConfigs.Extract("slackURL")
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 	slackURL := utils.StringInterface(slackURLInterface)
 	if len(slackURL) < 1 {
-		log.Fatal(fmt.Errorf("no slack url found"))
+		return fmt.Errorf("no slack url found")
 	}
 	env["slackURL"] = slackURL
+	return nil
+}
+
+func slackToken(envConfigs jsonextract.JSONExtract) error {
+	slackTokenInterface, err := envConfigs.Extract("slackToken")
+	if err != nil {
+		return err
+	}
+	slackToken := utils.StringInterface(slackTokenInterface)
+	if len(slackToken) < 1 {
+		return fmt.Errorf("no slack token found")
+	}
+	env["slackToken"] = slackToken
 	return nil
 }
 

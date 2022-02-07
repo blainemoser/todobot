@@ -10,6 +10,8 @@ import (
 	jsonextract "github.com/blainemoser/JsonExtract"
 	"github.com/blainemoser/MySqlDB/database"
 	utils "github.com/blainemoser/goutils"
+	"github.com/blainemoser/todobot/slackapi"
+	"github.com/blainemoser/todobot/tests"
 	"github.com/blainemoser/todobot/user"
 )
 
@@ -25,16 +27,18 @@ type Event struct {
 	Emessage  string
 	Next      int64
 	text      []string
+	nextSet   bool
 }
 
 type EventInit struct {
 	*database.Database
-	Channel   string
-	Timestamp float64
-	Schedule  int64
-	Etext     string
-	Etype     string
-	User      string
+	slackToken string
+	Channel    string
+	Timestamp  float64
+	Schedule   int64
+	Etext      string
+	Etype      string
+	User       string
 }
 
 func ProcessQueue(result chan []map[string]string) {
@@ -67,7 +71,7 @@ func BootQueue(db *database.Database) error {
 		return err
 	}
 	var e *Event
-	users, err = user.UsersList(db)
+	Users, err = user.UsersList(db)
 	if err != nil {
 		return err
 	}
@@ -82,7 +86,7 @@ func BootQueue(db *database.Database) error {
 
 func makeEventFromDBRecord(rec map[string]interface{}, db *database.Database) (e *Event) {
 	userID := utils.Int64Interface(rec["user_id"])
-	u := users[userID]
+	u := Users[userID]
 	if u == nil {
 		return nil
 	}
@@ -103,13 +107,14 @@ func makeEventFromDBRecord(rec map[string]interface{}, db *database.Database) (e
 	return e
 }
 
-func Create(payload string, db *database.Database) (*Event, error) {
+func Create(payload string, db *database.Database, token string) (*Event, error) {
 	eventExtract := jsonextract.JSONExtract{
 		RawJSON: payload,
 	}
 	errs := []string{}
 	ei := &EventInit{
-		Database: db,
+		Database:   db,
+		slackToken: token,
 	}
 	for _, wants := range []string{
 		"type", "text", "user", "ts", "channel",
@@ -149,6 +154,41 @@ func (e *Event) Processed() map[string]string {
 	}
 }
 
+func CheckEventUsers(db *database.Database, token string) error {
+	if Users == nil || len(Users) < 1 {
+		return nil
+	}
+	errs := make([]string, 0)
+	for _, u := range Users {
+		if len(u.TZ()) > 0 {
+			continue
+		}
+		updateUser(db, token, u, &errs)
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf(strings.Join(errs, ", "))
+	}
+	return nil
+}
+
+func updateUser(db *database.Database, token string, u *user.User, errs *[]string) {
+	details, err := slackapi.Slack(db, token).GetUserDetails(u.Hash())
+	if err != nil {
+		*errs = append(*errs, err.Error())
+		return
+	}
+	ui, err := user.NewInit(db, details, u.Hash())
+	if err != nil {
+		*errs = append(*errs, err.Error())
+		return
+	}
+	u, err = u.UpdateFromInit(ui).Update()
+	if err != nil {
+		*errs = append(*errs, err.Error())
+		return
+	}
+}
+
 func (e *Event) noneMessage() string {
 	return fmt.Sprintf(
 		"Sorry, I couldn't understand what you're asking...\n%s",
@@ -180,7 +220,8 @@ func (ei *EventInit) schedule() (ev *Event, err error) {
 	if err != nil {
 		return nil, err
 	}
-	return ei.setSchedule(e)
+	ev, err = ei.setSchedule(e)
+	return ev, err
 }
 
 func (ei *EventInit) list() (*Event, error) {
@@ -352,22 +393,41 @@ func (ei *EventInit) create() (*Event, error) {
 	if err != nil {
 		return nil, err
 	}
-	if users[u.ID()] == nil {
-		users[u.ID()] = u
+	if Users[u.ID()] == nil {
+		Users[u.ID()] = u
 	}
 	e.User = u
 	return e.insert()
 }
 
-func (i *EventInit) lookupUser() (*user.User, error) {
-	result, err := i.QueryRaw(findUser, []interface{}{i.User})
+func (ei *EventInit) lookupUser() (*user.User, error) {
+	result, err := ei.QueryRaw(findUser, []interface{}{ei.User})
 	if err != nil {
 		return nil, err
 	}
 	if len(result) < 1 {
-		return user.Create(i.Database, i.User)
+		return ei.createNewUser()
 	}
-	return user.CreateFromRecord(result[0], i.Database)
+	return user.CreateFromRecord(result[0], ei.Database)
+}
+
+func (ei *EventInit) createNewUser() (*user.User, error) {
+	details, err := ei.getUserDetails()
+	if err != nil {
+		return nil, err
+	}
+	ui, err := user.NewInit(ei.Database, details, ei.User)
+	if err != nil {
+		return nil, err
+	}
+	return user.Create(ui)
+}
+
+func (ei *EventInit) getUserDetails() (string, error) {
+	if testingMode {
+		return fmt.Sprintf(tests.TestUserPayload, ei.User), nil
+	}
+	return slackapi.Slack(ei.Database, ei.slackToken).GetUserDetails(ei.User)
 }
 
 func (ei *EventInit) addToEventInit(wants string, result interface{}) {
@@ -503,6 +563,9 @@ func (e *Event) setNext() {
 	if e.Schedule < 1 {
 		return
 	}
+	if e.nextSet {
+		return
+	}
 	next := int64(e.Timestamp + float64(e.Schedule))
 	for {
 		if next <= now() {
@@ -532,10 +595,130 @@ func (e *Event) scheduleDay(number int) {
 	if number < 1 {
 		e.Emessage = "every day"
 		e.Schedule = int64(day)
+	} else {
+		e.Emessage = fmt.Sprintf("every %d day(s)", number)
+		e.Schedule = int64(number * day)
+	}
+	e.hasSpecificTime()
+}
+
+func (e *Event) hasSpecificTime() {
+	if e.text == nil {
+		e.text = sanitize(e.echo())
+	}
+	parseTime := false
+	find := make([]string, 0)
+	for _, v := range e.text {
+		if v == "at" {
+			parseTime = true
+			continue
+		}
+		if parseTime {
+			find = append(find, v)
+		}
+	}
+	if parseTime && len(find) > 0 {
+		e.specifyTime(find)
+	}
+}
+
+func (e *Event) specifyTime(find []string) {
+	t := e.amOrPmTime(find)
+	if len(t) < 1 {
+		for _, v := range find {
+			if twentyFourHour.MatchString(v) || colonTime.MatchString(v) {
+				t = e.find24HourTime(v, false)
+				break
+			}
+		}
+	}
+	if len(t) > 0 {
+		e.setSpecificTime(t)
+	}
+}
+
+func (e *Event) setSpecificTime(t string) {
+	e.setNext()
+	nextT := time.Unix(int64(e.Timestamp), 0)
+	nextTAdj, err := time.Parse(tFormat, fmt.Sprintf("%s %s", nextT.Format("2006-01-02"), t))
+	nextTAdj = nextTAdj.Add(time.Second * time.Duration(-1*e.User.TZOffset()))
+	if err != nil {
+		fmt.Println("error parsing time", err.Error())
 		return
 	}
-	e.Emessage = fmt.Sprintf("every %d day(s)", number)
-	e.Schedule = int64(number * day)
+	e.Timestamp = float64(nextTAdj.Unix())
+	if nextTAdj.Unix() < nextT.Unix() {
+		e.Next = int64(e.Timestamp) + int64(day)
+	} else {
+		e.Next = int64(e.Timestamp)
+	}
+	e.nextSet = true
+	e.Emessage = fmt.Sprintf("%s at %s", e.Emessage, nextTAdj.Format("3:05 pm"))
+	e.save()
+}
+
+func (e *Event) amOrPmTime(find []string) string {
+	joined := strings.Join(find, " ")
+	am := strings.Contains(joined, " am")
+	pm := strings.Contains(joined, " pm")
+	if !am && !pm {
+		return ""
+	}
+	return e.findTime(find, am)
+}
+
+func (e *Event) findTime(find []string, am bool) string {
+	var t string
+	for _, v := range find {
+		if twentyFourHour.MatchString(v) || colonTime.MatchString(v) {
+			t = e.find24HourTime(v, am)
+			break
+		}
+		if digits[v] > 0 {
+			t = e.find24HourTime(fmt.Sprintf("%d:00", digits[v]), am)
+			break
+		}
+		if numbers[v] > 0 {
+			t = e.find24HourTime(fmt.Sprintf("%d:00", numbers[v]), am)
+			break
+		}
+	}
+	return t
+}
+
+func (e *Event) find24HourTime(v string, am bool) string {
+	v = strings.Replace(v, "h", ":", 1)
+	hoursMins := strings.Split(v, ":")
+	if len(hoursMins) != 2 {
+		return ""
+	}
+	if digits[hoursMins[0]] < 1 {
+		return ""
+	}
+	hours := digits[hoursMins[0]]
+	mins, err := strconv.ParseInt(hoursMins[1], 10, 24)
+	if err != nil {
+		return ""
+	}
+	return e.hoursAndMinutes(hours, mins, am)
+}
+
+func (e *Event) hoursAndMinutes(hours int, mins int64, am bool) string {
+	if hours < 13 && !am {
+		hours += 12
+	}
+	if hours > 23 && mins > 0 {
+		hours = 0
+	}
+	parsedHours := fmt.Sprintf("%d", hours)
+	parsedMins := fmt.Sprintf("%d", mins)
+	if hours < 10 {
+		parsedHours = fmt.Sprintf("0%s", parsedHours)
+	}
+	if mins < 10 {
+		parsedMins = fmt.Sprintf("0%s", parsedMins)
+	}
+	return fmt.Sprintf("%s:%s:00", parsedHours, parsedMins)
 }
 
 func (e *Event) scheduleHour(number int) {
@@ -549,15 +732,18 @@ func (e *Event) scheduleHour(number int) {
 }
 
 func (e *Event) getNumber() int {
-	textRaw := e.echo()
-	for num, figure := range numbers {
-		if strings.Contains(textRaw, num) {
-			return figure
-		}
+	if e.text == nil {
+		e.text = sanitize(e.echo())
 	}
-	for figureString, digit := range digits {
-		if strings.Contains(textRaw, figureString) {
-			return digit
+	for _, v := range e.text {
+		if v == "at" {
+			break
+		}
+		if numbers[v] > 0 {
+			return numbers[v]
+		}
+		if digits[v] > 0 {
+			return digits[v]
 		}
 	}
 	return 0

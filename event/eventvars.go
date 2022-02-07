@@ -19,6 +19,8 @@ const day int = 86400
 
 const hour int = 3600
 
+const tFormat = `2006-01-02 15:04:05`
+
 var (
 	testingMode                 = false
 	testingNow  int64           = 1643505910
@@ -99,9 +101,11 @@ var (
 		"2":  2,
 		"1":  1,
 	}
-	users      map[int64]*user.User = make(map[int64]*user.User)
-	NewLines                        = regexp.MustCompile(`\n+`)
-	MultiSpace                      = regexp.MustCompile(`[ ]{2,}`)
-	Queue      *list.List           = list.New()
-	removeTag                       = regexp.MustCompile(`<@(.*?)>`)
+	Users          map[int64]*user.User = make(map[int64]*user.User)
+	NewLines                            = regexp.MustCompile(`\n+`)
+	MultiSpace                          = regexp.MustCompile(`[ ]{2,}`)
+	Queue          *list.List           = list.New()
+	removeTag                           = regexp.MustCompile(`<@(.*?)>`)
+	twentyFourHour                      = regexp.MustCompile(`(.*?)h(.*?)`)
+	colonTime                           = regexp.MustCompile(`(.*?):(.*?)`)
 )
