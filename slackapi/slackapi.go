@@ -50,8 +50,10 @@ func (sc *SlackCall) Get(url string) (string, error) {
 func (sc *SlackCall) getBody(response *http.Response) (string, error) {
 	body, err := ioutil.ReadAll(response.Body)
 	if err != nil {
+		fmt.Printf("error response from Slack API %s\n", err.Error())
 		return "", err
 	}
+	fmt.Printf("response from Slack API %s\n", string(body))
 	return string(body), nil
 }
 
