@@ -182,6 +182,7 @@ func CheckEventUsers(db *database.Database, token string) error {
 }
 
 func updateUser(db *database.Database, token string, u *user.User, errs *[]string) {
+	fmt.Printf("updating user %s\n...", u.Hash())
 	details, err := slackapi.Slack(db, token).GetUserDetails(u.Hash())
 	if err != nil {
 		*errs = append(*errs, err.Error())
