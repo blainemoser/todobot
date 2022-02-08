@@ -53,7 +53,6 @@ func (sc *SlackCall) getBody(response *http.Response) (string, error) {
 		fmt.Printf("error response from Slack API %s\n", err.Error())
 		return "", err
 	}
-	fmt.Printf("response from Slack API %s\n", string(body))
 	return string(body), nil
 }
 
